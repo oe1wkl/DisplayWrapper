@@ -50,6 +50,31 @@ class DisplayWrapper {
 		uint16_t getWidth(void);
 		uint16_t getHeight(void);
 		static lgfx::LGFX_Device* getLGFX();
+
+		// ---- Game display mode ----
+		//
+		// Games need full-screen rendering with an off-screen sprite
+		// for flicker-free updates. On the M32Pocket (ESP32-S3), the
+		// TFT SPI bus shares pins 38/39 with the rotary encoder.
+		// These methods manage the pin conflict:
+		//
+		// enterGameMode():  allocates a full-screen sprite (once),
+		//                   configures the TFT, returns the sprite.
+		// pushGameFrame():  temporarily claims SPI pins, pushes the
+		//                   sprite framebuffer to the TFT, then
+		//                   restores the encoder pins.
+		// exitGameMode():   restores the normal display for menu use.
+		//
+		// The sprite is allocated once and persists across game
+		// sessions (no memory fragmentation). Both Morse Invaders
+		// and Fight the Pileup share the same sprite.
+
+		LGFX_Sprite* enterGameMode(bool leftHanded = false);
+		void pushGameFrame();
+		void exitGameMode();
+		bool isInGameMode() const;
+		LGFX_Sprite* getGameSprite();
+
 	private:
 		int colorConvert(OLEDDISPLAY_COLOR color);
 		int color = TFT_WHITE;
@@ -57,4 +82,7 @@ class DisplayWrapper {
 		bool useTheme;
 		uint16_t fg, bg;
 
+		// Game mode state
+		LGFX_Sprite* _gameSprite = nullptr;
+		bool _gameMode = false;
 };

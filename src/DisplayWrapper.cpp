@@ -218,3 +218,79 @@ else {
     fg = f; bg = b;
   }
 }
+
+
+//=============================================================================
+// Game Display Mode
+//=============================================================================
+//
+// On the M32Pocket (ESP32-S3 with ST7789 TFT), the SPI bus uses
+// pins TFT_SCLK (38) and TFT_CS (39), which are also used by the
+// rotary encoder. This creates a conflict:
+//
+// - lcd.begin() configures pins 38/39 as SPI → encoder breaks
+// - Encoder needs pins 38/39 as GPIO with interrupts → SPI breaks
+//
+// Solution: the game sprite draws into its own RAM framebuffer
+// (no SPI needed). Only pushGameFrame() needs SPI — it briefly
+// claims the bus via lcd.startWrite(), pushes the sprite, then
+// releases it via lcd.endWrite(). The encoder pins are managed
+// by the caller (the game code configures them after enterGameMode
+// and the Morserino menu code restores them after exitGameMode).
+//
+// The sprite is allocated once and persists for the lifetime of
+// the device. Both Morse Invaders and Fight the Pileup share it.
+//=============================================================================
+
+LGFX_Sprite* DisplayWrapper::enterGameMode(bool leftHanded) {
+    _gameMode = true;
+
+    // Configure the TFT for game use (portrait orientation)
+    lcd.setRotation(leftHanded ? 0 : 2);
+    lcd.fillScreen(TFT_BLACK);
+
+    // Allocate the sprite once — reuse across all game sessions
+    if (!_gameSprite) {
+        _gameSprite = new LGFX_Sprite(&lcd);
+        if (!_gameSprite) {
+            _gameMode = false;
+            return nullptr;
+        }
+        _gameSprite->setPsram(false);
+        _gameSprite->setColorDepth(16);
+        if (!_gameSprite->createSprite(lcd.width(), lcd.height())) {
+            delete _gameSprite;
+            _gameSprite = nullptr;
+            _gameMode = false;
+            return nullptr;
+        }
+    }
+    _gameSprite->fillSprite(TFT_BLACK);
+    return _gameSprite;
+}
+
+void DisplayWrapper::pushGameFrame() {
+    if (!_gameSprite || !_gameMode) return;
+
+    // LovyanGFX startWrite/endWrite manage the SPI bus.
+    // startWrite claims the bus (configures SPI pins if bus_shared).
+    // endWrite releases it (allows other users of the shared bus).
+    lcd.startWrite();
+    _gameSprite->pushSprite(&lcd, 0, 0);
+    lcd.endWrite();
+}
+
+void DisplayWrapper::exitGameMode() {
+    _gameMode = false;
+    // Do NOT delete the sprite — keep it for next game session.
+    // Restore the normal display orientation for menu use.
+    lcd.setRotation(3);
+}
+
+bool DisplayWrapper::isInGameMode() const {
+    return _gameMode;
+}
+
+LGFX_Sprite* DisplayWrapper::getGameSprite() {
+    return _gameSprite;
+}
